@@ -1,118 +1,47 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api, login } from './services/api';
+import './styles.css';
 
-const money = (value) => `₹${Number(value || 0).toFixed(2)}`;
+const money = v => `₹${Number(v || 0).toFixed(2)}`;
+const dt = v => v ? new Date(v).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'}) : '—';
+const Status = ({value}) => <span className={`status ${String(value).toLowerCase()}`}>{String(value).replaceAll('_',' ')}</span>;
+const Empty = ({text}) => <div className="empty"><b>{text}</b><span>Nothing to show here yet.</span></div>;
 
-function Login({ onLogin }) {
-  const [username, setUsername] = useState('admin');
-  const [password, setPassword] = useState('admin123');
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+function Login({onLogin}) { const [u,setU]=useState('admin'),[p,setP]=useState('admin123'),[err,setErr]=useState(''),[busy,setBusy]=useState(false); async function submit(e){e.preventDefault();setBusy(true);setErr('');try{const d=await login(u,p);onLogin(d.user)}catch(e){setErr(e.message||'Login failed')}finally{setBusy(false)}} return <main className="auth"><form onSubmit={submit} className="auth-card"><div className="brand"><span>PD</span><div><b>POS Dhaba</b><small>Restaurant management system</small></div></div><div className="auth-copy"><label>Username<input value={u} onChange={e=>setU(e.target.value)}/></label><label>Password<input type="password" value={p} onChange={e=>setP(e.target.value)}/></label>{err&&<div className="error">{err}</div>}<button className="btn primary wide" disabled={busy}>{busy?'Signing in…':'Sign in'}</button><small>Demo: admin / admin123</small></div></form></main> }
 
-  async function submit(e) {
-    e.preventDefault(); setError(''); setBusy(true);
-    try { const data = await login(username, password); onLogin(data.user); }
-    catch { setError('Login failed. Run the backend seed command first.'); }
-    finally { setBusy(false); }
-  }
+function Modal({title,onClose,children}){return <div className="modal-bg" onMouseDown={onClose}><div className="modal" onMouseDown={e=>e.stopPropagation()}><div className="modal-head"><h2>{title}</h2><button onClick={onClose}>×</button></div>{children}</div></div>}
+function Field({label,children}){return <label>{label}{children}</label>}
+function Form({children,onSubmit}){return <form className="form-grid" onSubmit={onSubmit}>{children}</form>}
 
-  return <main className="auth-shell"><form className="auth-card" onSubmit={submit}>
-    <div className="brand"><span className="brand-mark">PD</span><div><h1>POS Dhaba</h1><p>Restaurant point of sale</p></div></div>
-    <label>Username<input value={username} onChange={e => setUsername(e.target.value)} autoComplete="username" /></label>
-    <label>Password<input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" /></label>
-    {error && <div className="error">{error}</div>}
-    <button className="primary full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
-    <small>Demo: admin / admin123</small>
-  </form></main>;
+function App(){
+ const [user,setUser]=useState(null),[page,setPage]=useState('pos'),[tables,setTables]=useState([]),[menu,setMenu]=useState([]),[categories,setCategories]=useState([]),[orders,setOrders]=useState([]),[bills,setBills]=useState([]),[payments,setPayments]=useState([]),[users,setUsers]=useState([]),[business,setBusiness]=useState(null),[selected,setSelected]=useState(null),[cart,setCart]=useState([]),[bill,setBill]=useState(null),[method,setMethod]=useState('CASH'),[modal,setModal]=useState(null),[msg,setMsg]=useState(''),[loading,setLoading]=useState(true);
+ const admin=user?.role==='ADMIN'; const subtotal=useMemo(()=>cart.reduce((s,i)=>s+Number(i.price)*i.quantity,0),[cart]); const active=selected&&orders.find(o=>o.table===selected.id&&['OPEN','BILL_REQUESTED'].includes(o.status));
+ async function load(){try{const r=await Promise.all([api('/api/auth/me/'),api('/api/tables/'),api('/api/menu-items/'),api('/api/orders/'),...(admin?[api('/api/categories/'),api('/api/bills/'),api('/api/payments/'),api('/api/users/'),api('/api/businesses/')]:[])]);setUser(r[0]);setTables(r[1]);setMenu(r[2]);setOrders(r[3]);if(admin){setCategories(r[4]);setBills(r[5]);setPayments(r[6]);setUsers(r[7]);setBusiness(r[8][0]||null)}}catch(e){localStorage.removeItem('access_token');setUser(null);setMsg(e.message)}finally{setLoading(false)}}
+ useEffect(()=>{if(localStorage.getItem('access_token'))load();else setLoading(false)},[]);
+ const add=i=>setCart(c=>{const x=c.find(a=>a.id===i.id);return x?c.map(a=>a.id===i.id?{...a,quantity:a.quantity+1}:a):[...c,{...i,quantity:1}]}); const qty=(id,d)=>setCart(c=>c.map(i=>i.id===id?{...i,quantity:Math.max(0,i.quantity+d)}:i).filter(i=>i.quantity));
+ async function post(path,body,success){try{await api(path,{method:'POST',body:JSON.stringify(body)});setModal(null);setMsg(success);await load()}catch(e){setMsg(e.message)}} async function patch(path,body,success){try{await api(path,{method:'PATCH',body:JSON.stringify(body)});setModal(null);setMsg(success);await load()}catch(e){setMsg(e.message)}} async function del(path,success){if(!confirm('Delete this record?'))return;try{await api(path,{method:'DELETE'});setMsg(success);await load()}catch(e){setMsg(e.message)}}
+ async function send(){if(!selected||!cart.length)return;try{const o=active?await api(`/api/orders/${active.id}/add_round/`,{method:'POST',body:JSON.stringify({items:cart.map(i=>({menu_item:i.id,quantity:i.quantity}))})}):await api('/api/orders/',{method:'POST',body:JSON.stringify({table:selected.id,items:cart.map(i=>({menu_item:i.id,quantity:i.quantity}))})});setCart([]);setMsg(active?'New round sent.':`Order #${o.id} sent.`);await load()}catch(e){setMsg(e.message)}}
+ async function requestBill(){if(!active)return;try{setBill(await api(`/api/orders/${active.id}/request_bill/`,{method:'POST',body:'{}'}));await load()}catch(e){setMsg(e.message)}} async function pay(){try{await api('/api/payments/',{method:'POST',body:JSON.stringify({bill:bill.id,amount:bill.total,method})});setBill(null);setSelected(null);setMsg('Payment completed. Table is available.');await load()}catch(e){setMsg(e.message)}}
+ if(!user&&!loading)return <Login onLogin={u=>{setUser(u);load()}}/>; if(loading)return <main className="loading">Loading POS Dhaba…</main>;
+ const nav=admin?[['dashboard','Dashboard','⌂'],['pos','POS Terminal','▦'],['tables','Tables','□'],['menu','Menu','≡'],['orders','Orders','↔'],['billing','Billing','₹'],['payments','Payments','◈'],['users','Users','♙']]:[['pos','POS Terminal','▦'],['orders','My Orders','↔']];
+ return <div className="app"><aside><div className="side-brand"><span>PD</span><div><b>POS Dhaba</b><small>Restaurant POS</small></div></div><nav>{nav.map(n=><button className={page===n[0]?'active':''} onClick={()=>setPage(n[0])} key={n[0]}><i>{n[2]}</i>{n[1]}</button>)}</nav><div className="side-user"><div className="avatar">{(user.first_name||user.username)[0].toUpperCase()}</div><div><b>{user.first_name||user.username}</b><small>{user.role}</small></div><button onClick={()=>{localStorage.clear();setUser(null)}}>↪</button></div></aside><main className="main"><header><div><small>{business?.name||'POS DHABA'}</small><h1>{nav.find(n=>n[0]===page)?.[1]}</h1></div><span className="online">● Local server connected</span></header>{msg&&<button className="toast" onClick={()=>setMsg('')}>{msg} ×</button>}
+ {page==='dashboard'&&<Dashboard {...{tables,orders,bills,payments,menu,users,setPage}}/>}{page==='pos'&&<POS {...{tables,menu,selected,setSelected,cart,add,qty,subtotal,active,send,requestBill}}/>}{page==='tables'&&<Tables {...{tables,setModal,del}}/>}{page==='menu'&&<Menu {...{menu,categories,setModal,del}}/>}{page==='orders'&&<Orders orders={orders}/>}{page==='billing'&&<Billing bills={bills}/>}{page==='payments'&&<Payments payments={payments}/>}{page==='users'&&<Users {...{users,setModal,del}}/>}
+ </main>{bill&&<Modal title={`Bill #${bill.id}`} onClose={()=>setBill(null)}><div className="bill-total">{money(bill.total)}</div><div className="bill-lines"><p>Subtotal <b>{money(bill.subtotal)}</b></p><p>Tax <b>{money(bill.tax)}</b></p><p>Discount <b>-{money(bill.discount)}</b></p></div><Field label="Payment method"><select value={method} onChange={e=>setMethod(e.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option></select></Field><button className="btn primary wide" onClick={pay}>Complete payment</button></Modal>}{modal&&<AdminModal modal={modal} setModal={setModal} post={post} patch={patch}/>}</div>
 }
 
-function App() {
-  const [user, setUser] = useState(null);
-  const [tables, setTables] = useState([]);
-  const [menu, setMenu] = useState([]);
-  const [selectedTable, setSelectedTable] = useState(null);
-  const [cart, setCart] = useState([]);
-  const [orders, setOrders] = useState([]);
-  const [bill, setBill] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('CASH');
-  const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  const subtotal = useMemo(() => cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0), [cart]);
-
-  async function loadData() {
-    setLoading(true);
-    try {
-      const [me, tableData, menuData, orderData] = await Promise.all([
-        api('/api/auth/me/'), api('/api/tables/'), api('/api/menu-items/'), api('/api/orders/')
-      ]);
-      setUser(me); setTables(tableData); setMenu(menuData); setOrders(orderData);
-    } catch { localStorage.removeItem('access_token'); setUser(null); }
-    finally { setLoading(false); }
-  }
-
-  useEffect(() => { if (localStorage.getItem('access_token')) loadData(); else setLoading(false); }, []);
-
-  function addItem(item) {
-    setCart(current => {
-      const existing = current.find(x => x.id === item.id);
-      return existing ? current.map(x => x.id === item.id ? { ...x, quantity: x.quantity + 1 } : x) : [...current, { ...item, quantity: 1 }];
-    });
-  }
-
-  async function sendOrder() {
-    if (!selectedTable || !cart.length) return;
-    try {
-      const order = await api('/api/orders/', { method: 'POST', body: JSON.stringify({ table: selectedTable.id, items: cart.map(x => ({ menu_item: x.id, quantity: x.quantity })) }) });
-      setCart([]); setMessage(`Order #${order.id} sent to Table ${selectedTable.number}`); await loadData();
-    } catch (e) { setMessage(e.message); }
-  }
-
-  async function addRound() {
-    const active = orders.find(o => o.table === selectedTable?.id && ['OPEN', 'DRAFT'].includes(o.status));
-    if (!active || !cart.length) return;
-    try { await api(`/api/orders/${active.id}/add_round/`, { method: 'POST', body: JSON.stringify({ items: cart.map(x => ({ menu_item: x.id, quantity: x.quantity })) }) }); setCart([]); setMessage('New round added.'); await loadData(); }
-    catch (e) { setMessage(e.message); }
-  }
-
-  async function requestBill() {
-    const active = orders.find(o => o.table === selectedTable?.id && ['OPEN', 'BILL_REQUESTED'].includes(o.status));
-    if (!active) return;
-    try { const data = await api(`/api/orders/${active.id}/request_bill/`, { method: 'POST', body: JSON.stringify({}) }); setBill(data); await loadData(); }
-    catch (e) { setMessage(e.message); }
-  }
-
-  async function payBill() {
-    if (!bill) return;
-    try { await api('/api/payments/', { method: 'POST', body: JSON.stringify({ bill: bill.id, amount: bill.total, method: paymentMethod }) }); setBill(null); setSelectedTable(null); setMessage('Payment completed. Table is available again.'); await loadData(); }
-    catch (e) { setMessage(e.message); }
-  }
-
-  function logout() { localStorage.clear(); setUser(null); }
-  if (!user && !loading) return <Login onLogin={u => { setUser(u); loadData(); }} />;
-  if (loading) return <main className="loading">Loading POS Dhaba…</main>;
-
-  const activeOrder = selectedTable && orders.find(o => o.table === selectedTable.id && ['OPEN', 'BILL_REQUESTED'].includes(o.status));
-
-  return <div className="pos-shell">
-    <header className="topbar"><div className="brand compact"><span className="brand-mark">PD</span><strong>POS Dhaba</strong></div><div className="userbox"><span>{user.first_name || user.username} · {user.role}</span><button className="ghost" onClick={logout}>Logout</button></div></header>
-    {message && <div className="toast" onClick={() => setMessage('')}>{message}</div>}
-    <main className="workspace">
-      <section className="content">
-        <div className="page-head"><div><h2>Tables</h2><p>Select a table to start or continue an order.</p></div><span className="date">Today</span></div>
-        <div className="table-grid">{tables.map(table => <button key={table.id} className={`table-card ${table.status.toLowerCase()}`} onClick={() => setSelectedTable(table)}><div className="table-icon">{table.number}</div><strong>{table.name || `Table ${table.number}`}</strong><span>{table.status.replace('_', ' ')}</span><small>{table.capacity} seats</small></button>)}</div>
-        <div className="page-head menu-head"><div><h2>Menu</h2><p>Add items to the current table.</p></div></div>
-        <div className="menu-grid">{menu.map(item => <button key={item.id} className="menu-card" onClick={() => addItem(item)}><div><span className="category">{item.category_name || 'Menu'}</span><h3>{item.name}</h3><p>{item.description || 'Freshly prepared'}</p></div><strong>{money(item.price)}</strong></button>)}</div>
-      </section>
-      <aside className="order-panel"><div className="order-head"><div><span className="eyebrow">CURRENT TABLE</span><h2>{selectedTable ? `Table ${selectedTable.number}` : 'Select a table'}</h2></div>{selectedTable && <span className={`status ${selectedTable.status.toLowerCase()}`}>{selectedTable.status.replace('_', ' ')}</span>}</div>
-        {selectedTable && <div className="round-banner">{activeOrder ? `Open order #${activeOrder.id} · ${activeOrder.rounds?.length || 1} round(s)` : 'New order'}</div>}
-        <div className="cart">{cart.length ? cart.map(item => <div className="cart-row" key={item.id}><div><strong>{item.name}</strong><small>{money(item.price)} × {item.quantity}</small></div><strong>{money(Number(item.price) * item.quantity)}</strong></div>) : <div className="empty">No items yet.<br/>Choose a menu item above.</div>}</div>
-        <div className="totals"><div><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div><span>Tax</span><strong>₹0.00</strong></div><div className="grand"><span>Total</span><strong>{money(subtotal)}</strong></div></div>
-        <div className="actions"><button className="primary full" disabled={!selectedTable || !cart.length} onClick={activeOrder ? addRound : sendOrder}>{activeOrder ? 'Send New Round' : 'Send Order'}</button><button className="secondary full" disabled={!activeOrder || activeOrder.status === 'BILL_REQUESTED'} onClick={requestBill}>Request Bill</button></div>
-      </aside>
-    </main>
-    {bill && <div className="modal-backdrop"><div className="modal"><h2>Bill #{bill.id}</h2><div className="bill-total">{money(bill.total)}</div><label>Payment method<select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)}><option value="CASH">Cash</option><option value="UPI">UPI</option><option value="CARD">Card</option></select></label><button className="primary full" onClick={payBill}>Complete Payment</button><button className="ghost full" onClick={() => setBill(null)}>Close</button></div></div>}
-  </div>;
-}
+function Head({title,sub,action}){return <div className="head"><div><h2>{title}</h2><p>{sub}</p></div>{action}</div>}
+function Stat({label,value,note}){return <div className="stat"><small>{label}</small><strong>{value}</strong><span>{note}</span></div>}
+function Dashboard({tables,orders,bills,payments,menu,users,setPage}){const revenue=payments.filter(p=>p.status==='COMPLETED').reduce((s,p)=>s+Number(p.amount),0);return <section className="page"><Head title="Good day, admin" sub="Here's what's happening in your restaurant." action={<button className="btn primary" onClick={()=>setPage('pos')}>Open POS →</button>}/><div className="stats"><Stat label="Revenue" value={money(revenue)} note="Completed payments"/><Stat label="Open orders" value={orders.filter(o=>['OPEN','BILL_REQUESTED'].includes(o.status)).length} note="Live orders"/><Stat label="Tables" value={tables.length} note={`${tables.filter(t=>t.status==='AVAILABLE').length} available`}/><Stat label="Menu items" value={menu.length} note={`${users.length} team members`}/></div><div className="cols"><div className="panel"><div className="panel-head"><div><h3>Recent orders</h3><small>Latest activity</small></div><button onClick={()=>setPage('orders')}>View all</button></div>{orders.slice(0,7).map(o=><div className="list-row" key={o.id}><b>#{o.id}</b><div><strong>Table {o.table_number}</strong><small>{o.created_by_name} · {dt(o.created_at)}</small></div><Status value={o.status}/></div>)}{!orders.length&&<Empty text="No orders yet"/>}</div><div className="panel"><div className="panel-head"><div><h3>Table overview</h3><small>Live floor status</small></div><button onClick={()=>setPage('tables')}>Manage</button></div><div className="mini-tables">{tables.map(t=><div className={`mini ${t.status.toLowerCase()}`} key={t.id}><b>{t.number}</b><span>{t.status==='AVAILABLE'?'Free':t.status==='BILL_REQUESTED'?'Bill':'Busy'}</span></div>)}</div></div></div></section>}
+function POS({tables,menu,selected,setSelected,cart,add,qty,subtotal,active,send,requestBill}){return <section className="page pos"><div className="pos-left"><Head title="Tables & menu" sub="Select a table, then add items."/><h3 className="section">Tables</h3><div className="table-grid">{tables.map(t=><button className={`table ${t.status.toLowerCase()} ${selected?.id===t.id?'selected':''}`} key={t.id} onClick={()=>setSelected(t)}><b>{t.number}</b><strong>{t.name||`Table ${t.number}`}</strong><Status value={t.status}/><small>{t.capacity} seats</small></button>)}</div><h3 className="section">Menu</h3><div className="menu-grid">{menu.map(i=><button className="menu-card" key={i.id} onClick={()=>add(i)}><span>{i.category_name||'Menu'}</span><h3>{i.name}</h3><p>{i.description||'Freshly prepared'}</p><b>{money(i.price)}</b></button>)}</div></div><aside className="cart"><small>CURRENT ORDER</small><h2>{selected?`Table ${selected.number}`:'Select a table'}</h2>{selected&&<div className="order-meta">{active?`Order #${active.id} · ${active.rounds?.length||1} round(s)`:'New order'}</div>}<div className="cart-items">{cart.map(i=><div className="cart-item" key={i.id}><div><b>{i.name}</b><small>{money(i.price)} each</small></div><div className="qty"><button onClick={()=>qty(i.id,-1)}>−</button><b>{i.quantity}</b><button onClick={()=>qty(i.id,1)}>+</button></div><b>{money(i.price*i.quantity)}</b></div>)}{!cart.length&&<Empty text="Your cart is empty"/>}</div><div className="total"><p>Subtotal <b>{money(subtotal)}</b></p><p>Tax <b>₹0.00</b></p><h3>Total <b>{money(subtotal)}</b></h3></div><button className="btn primary wide" disabled={!selected||!cart.length} onClick={send}>{active?'Send new round':'Send order'}</button><button className="btn secondary wide" disabled={!active||active.status==='BILL_REQUESTED'} onClick={requestBill}>Request bill</button></aside></section>}
+function Tables({tables,setModal,del}){return <section className="page"><Head title="Tables" sub="Configure your restaurant floor." action={<button className="btn primary" onClick={()=>setModal({type:'table'})}>＋ Add table</button>}/><div className="admin-grid">{tables.map(t=><div className="admin-card" key={t.id}><div className={`big-table ${t.status.toLowerCase()}`}>{t.number}</div><div><h3>{t.name||`Table ${t.number}`}</h3><Status value={t.status}/><p>{t.capacity} seats</p><button onClick={()=>setModal({type:'table',record:t})}>Edit</button><button className="danger" onClick={()=>del(`/api/tables/${t.id}/`,'Table deleted.')}>Delete</button></div></div>)}</div></section>}
+function Menu({menu,categories,setModal,del}){return <section className="page"><Head title="Menu management" sub="Manage categories, prices and availability." action={<><button className="btn secondary" onClick={()=>setModal({type:'category'})}>＋ Category</button> <button className="btn primary" onClick={()=>setModal({type:'item'})}>＋ Menu item</button></>}/><div className="chips">{categories.map(c=><span key={c.id}>{c.name}</span>)}</div><div className="admin-grid">{menu.map(i=><div className="admin-card" key={i.id}><div className="food">{i.name[0]}</div><div><small>{i.category_name}</small><h3>{i.name}</h3><p>{i.description||'No description'}</p><b>{money(i.price)}</b><div><button onClick={()=>setModal({type:'item',record:i})}>Edit</button><button className="danger" onClick={()=>del(`/api/menu-items/${i.id}/`,'Menu item deleted.')}>Delete</button></div></div></div>)}</div></section>}
+function Orders({orders}){return <section className="page"><Head title="Order management" sub="Track orders and multiple rounds."/><div className="panel table-wrap"><table><thead><tr><th>Order</th><th>Table</th><th>Waiter</th><th>Rounds</th><th>Status</th><th>Created</th></tr></thead><tbody>{orders.map(o=><tr key={o.id}><td>#{o.id}</td><td>Table {o.table_number}</td><td>{o.created_by_name}</td><td>{o.rounds?.length||0}</td><td><Status value={o.status}/></td><td>{dt(o.created_at)}</td></tr>)}</tbody></table></div></section>}
+function Billing({bills}){return <section className="page"><Head title="Billing" sub="Review issued and paid bills."/><div className="stats"><Stat label="Bills" value={bills.length} note="All generated"/><Stat label="Paid" value={bills.filter(b=>b.status==='PAID').length} note="Completed"/><Stat label="Issued" value={bills.filter(b=>b.status==='ISSUED').length} note="Awaiting payment"/><Stat label="Value" value={money(bills.reduce((s,b)=>s+Number(b.total),0))} note="Gross bill value"/></div><div className="panel table-wrap"><table><thead><tr><th>Bill</th><th>Table</th><th>Subtotal</th><th>Total</th><th>Status</th><th>Issued</th></tr></thead><tbody>{bills.map(b=><tr key={b.id}><td>#{b.id}</td><td>Table {b.table_number}</td><td>{money(b.subtotal)}</td><td><b>{money(b.total)}</b></td><td><Status value={b.status}/></td><td>{dt(b.issued_at)}</td></tr>)}</tbody></table></div></section>}
+function Payments({payments}){return <section className="page"><Head title="Payment history" sub="Completed transactions."/><div className="panel table-wrap"><table><thead><tr><th>Payment</th><th>Bill</th><th>Method</th><th>Amount</th><th>Status</th><th>Paid at</th></tr></thead><tbody>{payments.map(p=><tr key={p.id}><td>#{p.id}</td><td>#{p.bill}</td><td>{p.method}</td><td><b>{money(p.amount)}</b></td><td><Status value={p.status}/></td><td>{dt(p.paid_at)}</td></tr>)}</tbody></table>{!payments.length&&<Empty text="No payments yet"/>}</div></section>}
+function Users({users,setModal,del}){return <section className="page"><Head title="Team & roles" sub="Manage admin and waiter access." action={<button className="btn primary" onClick={()=>setModal({type:'user'})}>＋ Add user</button>}/><div className="user-grid">{users.map(u=><div className="user-card" key={u.id}><div className="avatar">{(u.first_name||u.username)[0]}</div><div><h3>{u.first_name||u.username}</h3><span>@{u.username}</span><p><b className="role">{u.role}</b> · {u.is_active?'Active':'Inactive'}</p></div><button className="danger" onClick={()=>del(`/api/users/${u.id}/`,'User deleted.')}>Delete</button></div>)}</div></section>}
+function AdminModal({modal,setModal,post,patch}){const r=modal.record; if(modal.type==='table'){const[v,s]=useState({number:r?.number||'',name:r?.name||'',capacity:r?.capacity||4});return <Modal title={r?'Edit table':'Add table'} onClose={()=>setModal(null)}><Form onSubmit={e=>{e.preventDefault();(r?patch:post)(r?`/api/tables/${r.id}/`:'/api/tables/',{...v,number:+v.number,capacity:+v.capacity},r?'Table updated.':'Table created.')}}><Field label="Number"><input type="number" value={v.number} onChange={e=>s({...v,number:e.target.value})} required/></Field><Field label="Name"><input value={v.name} onChange={e=>s({...v,name:e.target.value})}/></Field><Field label="Capacity"><input type="number" value={v.capacity} onChange={e=>s({...v,capacity:e.target.value})}/></Field><button className="btn primary wide">Save</button></Form></Modal>}
+ if(modal.type==='category'){const[v,s]=useState(r?.name||'');return <Modal title="Category" onClose={()=>setModal(null)}><Form onSubmit={e=>{e.preventDefault();(r?patch:post)(r?`/api/categories/${r.id}/`:'/api/categories/',{name:v},'Category saved.')}}><Field label="Name"><input value={v} onChange={e=>s(e.target.value)} required/></Field><button className="btn primary wide">Save category</button></Form></Modal>}
+ if(modal.type==='item'){const[v,s]=useState({category:r?.category||'',name:r?.name||'',description:r?.description||'',price:r?.price||'',is_available:r?.is_available??true});return <Modal title="Menu item" onClose={()=>setModal(null)}><Form onSubmit={e=>{e.preventDefault();(r?patch:post)(r?`/api/menu-items/${r.id}/`:'/api/menu-items/',{...v,category:+v.category},'Menu item saved.')}}><Field label="Category"><select value={v.category} onChange={e=>s({...v,category:e.target.value})}><option value="">Select category</option></select></Field><Field label="Name"><input value={v.name} onChange={e=>s({...v,name:e.target.value})} required/></Field><Field label="Price"><input type="number" step="0.01" value={v.price} onChange={e=>s({...v,price:e.target.value})} required/></Field><Field label="Description"><textarea value={v.description} onChange={e=>s({...v,description:e.target.value})}/></Field><button className="btn primary wide">Save item</button></Form></Modal>}
+ const[v,s]=useState({username:'',password:'',first_name:'',last_name:'',email:'',role:'WAITER'});return <Modal title="Add user" onClose={()=>setModal(null)}><Form onSubmit={e=>{e.preventDefault();post('/api/users/',v,'User created.')}}>{[['username','Username','text'],['password','Password','password'],['first_name','First name','text'],['last_name','Last name','text'],['email','Email','email']].map(x=><Field label={x[1]} key={x[0]}><input type={x[2]} value={v[x[0]]} onChange={e=>s({...v,[x[0]]:e.target.value})} required={x[0]==='username'||x[0]==='password'}/></Field>)}<Field label="Role"><select value={v.role} onChange={e=>s({...v,role:e.target.value})}><option>WAITER</option><option>ADMIN</option></select></Field><button className="btn primary wide">Create user</button></Form></Modal>}
 
 export default App;
