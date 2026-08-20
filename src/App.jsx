@@ -1,4 +1,3 @@
-import './styles.css';
 import usePOSData from './hooks/usePOSData';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
