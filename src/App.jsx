@@ -1,5 +1,4 @@
 import './styles.css';
-import { api } from './services/api';
 import usePOSData from './hooks/usePOSData';
 import Login from './components/Login';
 import AppShell from './components/AppShell';
@@ -19,25 +18,14 @@ const NAV_WAITER = [['pos','POS Terminal','▦'],['orders','My Orders','↔']];
 
 export default function App() {
   const state = usePOSData();
-  const { user, setUser, admin, page, setPage, bill, setBill, method, setMethod, modal, setModal, loading, msg, setMsg, business, logout, pay, ...props } = state;
-
+  const { user, setUser, admin, page, setPage, bill, setBill, method, setMethod, modal, setModal, loading, msg, setMsg, business, logout } = state;
   if (!user && !loading) return <Login onLogin={loggedUser => { setUser(loggedUser); state.load(); }} />;
   if (loading) return <main className="loading">Loading POS Dhaba…</main>;
 
   const nav = admin ? NAV_ADMIN : NAV_WAITER;
-  const overlays = <>
-    {bill && <Modal title={`Bill #${bill.id}`} onClose={() => setBill(null)}>
-      <div className="bill-total">{money(bill.total)}</div>
-      <div className="bill-lines"><p>Subtotal <b>{money(bill.subtotal)}</b></p><p>Tax <b>{money(bill.tax)}</b></p><p>Discount <b>-{money(bill.discount)}</b></p></div>
-      <Field label="Payment method"><select value={method} onChange={event => setMethod(event.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option></select></Field>
-      <button className="btn primary wide" onClick={pay}>Complete payment</button>
-    </Modal>}
-    {modal && <AdminModal modal={modal} setModal={setModal} post={state.post} patch={state.patch} categories={state.categories} />}
-  </>;
-
   const pages = {
-    dashboard: <Dashboard {...props} setPage={setPage} />,
-    pos: <POS {...props} />,
+    dashboard: <Dashboard {...state} setPage={setPage} />,
+    pos: <POS {...state} />,
     tables: <Tables tables={state.tables} setModal={setModal} del={state.del} />,
     menu: <Menu menu={state.menu} categories={state.categories} setModal={setModal} del={state.del} />,
     orders: <Orders orders={state.orders} />,
@@ -45,6 +33,6 @@ export default function App() {
     payments: <Payments payments={state.payments} />,
     users: <Users users={state.users} setModal={setModal} del={state.del} />,
   };
-
+  const overlays = <>{bill && <Modal title={`Bill #${bill.id}`} onClose={() => setBill(null)}><div className="bill-total">{money(bill.total)}</div><div className="bill-lines"><p>Subtotal <b>{money(bill.subtotal)}</b></p><p>Tax <b>{money(bill.tax)}</b></p><p>Discount <b>-{money(bill.discount)}</b></p></div><Field label="Payment method"><select value={method} onChange={e => setMethod(e.target.value)}><option>CASH</option><option>UPI</option><option>CARD</option></select></Field><button className="btn primary wide" onClick={state.pay}>Complete payment</button></Modal>}{modal && <AdminModal modal={modal} setModal={setModal} post={state.post} patch={state.patch} categories={state.categories} />}</>;
   return <AppShell user={user} business={business} page={page} setPage={setPage} nav={nav} onLogout={logout} msg={msg} setMsg={setMsg} overlays={overlays}>{pages[page]}</AppShell>;
 }
